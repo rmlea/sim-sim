@@ -186,7 +186,8 @@ class MainHandler(webapp2.RequestHandler):
     if not self.root_host: # when user access appid.appsot.com
       self.show_home_page()
       return
-      
+    
+    logging.warning("unpack_host")
     (scheme, host, port, token) = self.unpack_host() # target host
     if scheme is None:
       self.redirect(str('https://' + self.request.host))
