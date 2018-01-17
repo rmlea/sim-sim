@@ -281,7 +281,7 @@ class MainHandler(webapp2.RequestHandler):
   def unpack_host(self):
     regexp = r'^([-a-z0-9]+-[a-z]{2,9})(-{1,2})([0-9]{1,5}-|)([a-z0-9]+)([a-z0-9]{' 
     regexp += str(TOKEN_LENGTH) + r'})-dot-'
-    match = re.match(regexp, self.request.path)
+    match = re.match(regexp, self.request.path.split('-dot-', 1)[-1])
     if match is None:
       return (None, None, None, None)
     port = match.group(3)[:-1]
@@ -333,7 +333,7 @@ class MainHandler(webapp2.RequestHandler):
         if l < 1 or l > len(NUMERALS):
           return matchobj.group(0)
         dot_pos += NUMERALS[l - 1]
-      result = matchobj.group(1) + 'https://' + host.replace('.', '-') + '-' 
+      result = matchobj.group(1) + host.replace('.', '-') + '-' 
       
       if scheme.startswith('https'):
         result += '-'
@@ -342,7 +342,7 @@ class MainHandler(webapp2.RequestHandler):
       elif port != '' and port != '80':
       	result += port + '-'
       	
-      result += self.self.request.host + '/' + dot_pos + token + '-dot-' + path
+      result = 'https://' + self.request.host + '/' + result + dot_pos + token + '-dot-' + path
       return result 
     
     if mode == 'css':
