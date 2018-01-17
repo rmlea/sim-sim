@@ -32,7 +32,7 @@
 # https://console.cloud.google.com/iam-admin/iam/
 # Будьте осторожны. Администраторы смогут изменять многие настройки вашего сайта.
 
-ADMINS_ONLY = 1
+ADMINS_ONLY = 0
 
 # Максимальный размер (в байтах) для документов HTML, XML или CSS внутри которых
 # ссылки автоматически преобразуются. Более длинные будут переданы как есть.
@@ -183,7 +183,7 @@ class MainHandler(webapp2.RequestHandler):
       return
     
     self.root_host = str(self.request.path.split('-dot-', 1)[0])
-    if not root_host: # when user access appid.appsot.com
+    if not self.root_host: # when user access appid.appsot.com
       self.show_home_page()
       return
       
