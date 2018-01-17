@@ -117,6 +117,7 @@ import re
 import time
 import urllib
 import webapp2
+from base64 import b64encode, b64decode
 
 from google.appengine.api import memcache
 from google.appengine.api import urlfetch
@@ -130,8 +131,10 @@ class MainHandler(webapp2.RequestHandler):
   def patch(self):  self.any()
   def delete(self): self.any()
   def post(self):
-    self.root_host = str(self.request.host.split('-dot-', 1)[-1])
-    if self.request.host != self.root_host:
+    # root_host should be target_host, the host to be proxied
+    self.root_host = str(self.request.path.strip('/').split('-dot-', 1)[0])
+    self.target_path = str(self.request.path.split('-dot-', 1)[-1])
+    if self.root_host: # target host is not empty
       self.any()
       return
     
@@ -142,13 +145,14 @@ class MainHandler(webapp2.RequestHandler):
     if ADMINS_ONLY and not users.IsCurrentUserAdmin():
       return
     
+    # if user typed invalid address
     if not 'url' in self.request.POST or \
        len(self.request.POST['url']) < 4 or \
        not 'token' in self.request.POST or \
        not self.is_valid_token(self.request.POST['token']):
       logging.error('Broken init post:\r\n' + self.request.body[:999])
       logging.error('\r\n'.join(['%s: %s' % (k, v) for (k, v) in self.request.headers.items()]))
-      self.redirect('https://' + self.root_host)
+      self.redirect('https://' + self.request.host)
       return
     
     token = self.request.POST['token']
@@ -178,16 +182,16 @@ class MainHandler(webapp2.RequestHandler):
       self.show_robots_txt()
       return
     
-    self.root_host = str(self.request.host.split('-dot-', 1)[-1])
-    if self.request.host == self.root_host:
+    self.root_host = str(self.request.path.split('-dot-', 1)[0])
+    if not root_host: # when user access appid.appsot.com
       self.show_home_page()
       return
       
-    (scheme, host, port, token) = self.unpack_host()
+    (scheme, host, port, token) = self.unpack_host() # target host
     if scheme is None:
-      self.redirect(str('https://' + self.root_host))
+      self.redirect(str('https://' + self.request.host))
       return
-    (scheme, host, path_qs) = patch_host_back(scheme, host, self.request.path_qs)
+    (scheme, host, path_qs) = patch_host_back(scheme, host, self.request.path_qs.split('-dot-',1)[-1])
     url = scheme + '://' + host
     if port:
       if scheme == 'https':
@@ -200,11 +204,11 @@ class MainHandler(webapp2.RequestHandler):
     logging.debug(url)
     
     if token in BLOCKED_TOKENS:
-      self.redirect(str('https://' + self.root_host))
+      self.redirect(str('https://' + self.request.host))
       logging.info('Blocked token')
       return
     if not self.is_stored_token(token):
-      self.redirect(str('https://' + self.root_host + '/' + url), code = 307)
+      self.redirect(str('https://' + self.request.host + '/' + url), code = 307)
       return
     
 # https://cloud.google.com/appengine/docs/python/refdocs/modules/google/appengine/api/urlfetch
@@ -261,24 +265,23 @@ class MainHandler(webapp2.RequestHandler):
       content_type = re.split('[:; \/\\\\=]+', content_type_value.lower())
       if len(content_type) > 1 and content_type[0] in ['text', 'application']:
         if content_type[1] in ['html', 'xml', 'xhtml+xml', 'plain']:
-          content = patch_html(scheme, host, self.request.path, content)
+          content = patch_html(scheme, host, self.target_path, content)
           content = self.encode_url(content, token, scheme, mode = 'html')
         elif content_type[1] in ['css']:
-          content = patch_css(scheme, host, self.request.path, content)
+          content = patch_css(scheme, host, self.target_path, content)
           content = self.encode_url(content, token, scheme, mode = 'css')
         elif content_type[1] in ['javascript']:
-          content = patch_js(scheme, host, self.request.path, content)
+          content = patch_js(scheme, host, self.target_path, content)
         elif content_type[1] in ['bittorrent', 'x-bittorrent']:
-          content = patch_torrent(scheme, host, self.request.path, content, self.root_host)
+          content = patch_torrent(scheme, host, self.target_path, content, self.request.host)
     return content
-
 
 # site-com-3token-dot-app-id.appspot.com -> ('http', 'site.com', '', 'token')
 # sub-domain-site-com-8080-93token-dot-app-id.appspot.com -> ('http', 'sub-domain.site.com', '8080', 'token')
   def unpack_host(self):
     regexp = r'^([-a-z0-9]+-[a-z]{2,9})(-{1,2})([0-9]{1,5}-|)([a-z0-9]+)([a-z0-9]{' 
     regexp += str(TOKEN_LENGTH) + r'})-dot-'
-    match = re.match(regexp, self.request.host)
+    match = re.match(regexp, self.request.path)
     if match is None:
       return (None, None, None, None)
     port = match.group(3)[:-1]
@@ -313,7 +316,6 @@ class MainHandler(webapp2.RequestHandler):
         result[name] = re.sub(regexp, dashrepl, value, flags = re.IGNORECASE)
     return result
 
- 
   def encode_url(self, text, token, current_scheme = 'http', mode = None):
     def dashrepl(matchobj):
       host = matchobj.group(4).strip('.').lower()
@@ -340,7 +342,7 @@ class MainHandler(webapp2.RequestHandler):
       elif port != '' and port != '80':
       	result += port + '-'
       	
-      result += dot_pos + token + '-dot-' + self.root_host + path
+      result += self.self.request.host + '/' + dot_pos + token + '-dot-' + path
       return result 
     
     if mode == 'css':
@@ -393,7 +395,7 @@ class MainHandler(webapp2.RequestHandler):
     
     if len(url) < 5:
       url = random.choice(SAMPLE_HOSTS or [''])
-    content = home_page.replace('%%host%%', self.root_host)
+    content = home_page.replace('%%host%%', self.request.host)
     content = content.replace('%%url%%', url)
     content = content.replace('%%token%%', token)
     content = content.replace('%%year%%', str(datetime.datetime.now().year))
